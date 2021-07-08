@@ -1061,4 +1061,30 @@ test_expect_success PERL,SYMLINKS,CASE_INSENSITIVE_FS \
 	)
 '
 
+# When Git starts a long-running filter process _and_ a post-commit hook, the
+# I/O handles used for the filter process might be inherited by the hook, and
+# by any background processes started by the hook. The background process
+# shouldn't prevent Git from terminating, but if the background process
+# continues to hold those I/O handles open, then Git will remain running,
+# waiting for them to close. If the background process creates a file before
+# Git terminates, then Git must have been waiting for handles to close. If the
+# file doesn't exist yet, then the background process must still be running
+# after Git terminates.
+test_expect_success PERL "hooks don't inherit filter-process handles" '
+	test_config_global filter.test.process "rot13-filter.pl debug.log clean smudge" &&
+	test_config_global filter.test.required true &&
+	mkdir -p .git/hooks &&
+	write_script .git/hooks/post-commit <<-\EOF &&
+		./background.sh >/dev/null 2>&1 &
+	EOF
+	write_script ./background.sh <<-\EOF &&
+		sleep 3
+		>background_script_terminated
+	EOF
+	echo "* filter=test" >.gitattributes &&
+	git add .gitattributes &&
+	test_commit filter-one &&
+	test_path_is_missing background_script_terminated
+'
+
 test_done
